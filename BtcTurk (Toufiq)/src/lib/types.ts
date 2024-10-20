@@ -22,7 +22,7 @@ export type BtcTurkAssetsResult = BtcTurkResultGeneric & {
 export type BtcTurkOrder = {
     id: string, // eg: 9932534,
     datetime: string, // eg: 1543996112263,
-    type: 'Buy' | 'Sell', // eg: "Buy",
+    type: 'Buy' | 'Sell' | 'buy' | 'sell', // eg: "Buy",
     method: 'Limit' | 'Market' | string, // eg: "Limit",
     price: string, // eg: "20000.00",
     stopPrice: string, // eg: "20000.00",

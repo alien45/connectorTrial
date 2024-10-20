@@ -8,16 +8,16 @@ import {
     Ticker,
     TopOfBook,
     Trade,
-} from '../../types' //'skl-shared'?
+} from '../../types'
 import { getSklSymbol } from '../../util/config'
 import { Logger } from '../../util/logging'
 import {
     CONNECTOR_TYPE,
     getBtcTurkSymbol,
-    TradeSideMap,
+    TradeSideMapToSKL,
     OnMessage
-} from './btcturk-spot'
-import BtcTurkWSClient from './lib/BtcTurkWSClient'
+} from '../../btcturk-spot'
+import BtcTurkWSClient from '../../lib/BtcTurkWSClient'
 import {
     BtcTurkOrderBookItem,
     BtcTurkOrderBookResult,
@@ -25,8 +25,8 @@ import {
     BtcTurkTickerResult,
     BtcTurkTradeListItem,
     BtcTurkTradeSingle
-} from './lib/types'
-import { BtcTurk_WS_TYPE } from './lib/utils'
+} from '../../lib/types'
+import { BtcTurk_WS_TYPE } from '../../lib/utils'
 
 const logger = Logger.getInstance('btcturk-spot-public-connector')
 
@@ -34,6 +34,7 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
     public asks: BtcTurkOrderBookItem[] = []
     public bids: BtcTurkOrderBookItem[] = []
     private btcTurkWSClient: BtcTurkWSClient
+    public debug = false
     private exchangeSymbol: string
     private sklSymbol: string
     public socketUrl: string
@@ -52,8 +53,8 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
     }
 
     public connect = async (onMessage: OnMessage): Promise<void> => this.btcTurkWSClient
-        .connect()
-        .then(async connected => {
+        .connect(e => this.debug && logger.log('DEBUG: message received', e.data))
+        .then(async (connected: Boolean) => {
             if (!connected) return
 
             // BtcTurkWSClient will auto re-subscribe on auto-reconnect
@@ -84,13 +85,13 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
         bidSize: parseFloat(orderbook.BO[0].A),
     })
 
-    private createTrade = (trade: BtcTurkTradeListItem): Trade | null => ({
+    private createTrade = (trade: BtcTurkTradeListItem): Trade => ({
         symbol: this.sklSymbol,
         connectorType: CONNECTOR_TYPE,
         event: 'Trade',
         price: parseFloat(trade.P),
         size: parseFloat(trade.A),
-        side: TradeSideMap[trade.S],
+        side: TradeSideMapToSKL[trade.S],
         timestamp: new Date(trade.D).getTime(),
     })
 
@@ -104,7 +105,7 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
      */
     public stop = () => {
         this.btcTurkWSClient.unsubscribeAll()
-        this.btcTurkWSClient.socket.stop()
+        this.btcTurkWSClient.stop()
     }
 
     private subscribeToChannels(onMessage: OnMessage): void {

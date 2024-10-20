@@ -9,7 +9,6 @@ import {
     BtcTurkSubmitOrderParams,
     BtcTurkSubmitOrderResult
 } from './types'
-import { CONNECTOR_TYPE } from '../btcturk-spot'
 
 export interface IBtcTurkRestClient {
     apiBaseUrl: string
@@ -230,7 +229,7 @@ const rejectWithErrorOrRetry = (
         && !!period
         && retryCount > 0
     if (retry) {
-        instance.logger?.log(`${CONNECTOR_TYPE}: ${details}`)
+        instance.logger?.log(`BtcTurk: ${details}`)
 
         // convert period to milliseconds
         const delayMS = periodToMs(period)

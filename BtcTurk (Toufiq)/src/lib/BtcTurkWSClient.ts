@@ -23,6 +23,7 @@ export type BtcTurkWSSubscribeParams = {
 export interface IBtcTurkWSClient {
     connected: Boolean
     connecting: Boolean
+    ignoreMessageTypes: number[],
     reconnectDelayMS: number
     socket: any
 
@@ -48,6 +49,14 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
     public connected = false
     public connecting = false
     protected connectionPromise: Promise<Boolean> | null = null
+    public ignoreMessageTypes = [
+        BtcTurk_WS_TYPE.connected, // on connection message
+        BtcTurk_WS_TYPE.UserLoginRequest, // user login message
+        BtcTurk_WS_TYPE.orderDeletePayload, // pre-order-delete message
+        // an additional message sent when subscribing to single trades.
+        // ToDo: use the most recent entry
+        BtcTurk_WS_TYPE.TradeSingleList,
+    ]
     protected reconnect = true
     protected reconnectTimeoutId: any
     public socket: WebSocket | null = null
@@ -148,6 +157,9 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
                     return this.logger?.log(msg)
                 }
 
+                const ignoreMsg = this.ignoreMessageTypes.includes(msgType)
+                if (ignoreMsg) return
+
                 const key = this.getCallbackKey(
                     channel,
                     event,
@@ -179,13 +191,9 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
                 })
 
                 const noHandler = !callbacks?.length
-                    && ![
-                        BtcTurk_WS_TYPE.connected, // on connection message
-                        BtcTurk_WS_TYPE.UserLoginRequest,
-                        BtcTurk_WS_TYPE.orderDeletePayload,
-                    ].includes(msgType)
+
                 if (noHandler) {
-                    const msg = `No handler for message: Channel ${channel} | Event ${event} | Type ${msgType}`
+                    const msg = `No handler for message: Channel "${channel || ''}" | Event "${event || ''}" | Type ${msgType}`
                     return this.logger?.log?.(msg)
                 }
 

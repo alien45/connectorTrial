@@ -70,7 +70,7 @@ export class BtcTurkWSPrivateClient extends BtcTurkWSClient {
 
         const sendLoginMsgNWait = () => {
             this.loginResultHandler = (ok: Boolean, message: string) => {
-                this.logger?.log?.(`BtcTurk: login ${ok ? 'success' : 'failed'}. ${message || ''}`)
+                this.logger?.log?.(`login ${ok ? 'success' : 'failed'}. ${message || ''}`)
 
                 ok
                     ? resolve(ok)

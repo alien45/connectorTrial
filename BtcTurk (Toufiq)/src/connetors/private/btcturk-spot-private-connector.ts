@@ -1,8 +1,3 @@
-import axios from 'axios'
-import * as crypto from 'crypto'
-import CryptoJS from 'crypto-js'
-import * as jwt from 'jsonwebtoken'
-import { WebSocket } from 'ws'
 import { Logger } from '../../util/logging'
 import { getSklSymbol } from '../../util/config'
 import {
@@ -31,10 +26,9 @@ import {
 	OrderStatusMapToSKL,
 	OrderSideMapToSKL,
 	OrderUpdateStateMap
-} from './btcturk-spot'
-import BtcTurkRestClient from './lib/BtcTurkRestClient'
-import BtcTurkWSClient from './lib/BtcTurkWSClient'
-import BtcTurkWSPrivateClient, { BtcTurkWSPrivateEvent } from './lib/BtcTurkWSPrivateClient'
+} from '../../btcturk-spot'
+import BtcTurkRestClient from '../../lib/BtcTurkRestClient'
+import BtcTurkWSPrivateClient, { BtcTurkWSPrivateEvent } from '../../lib/BtcTurkWSPrivateClient'
 import {
 	BtcTurkResultGeneric,
 	BtcTurkSubmitOrderMethod,
@@ -42,19 +36,16 @@ import {
 	BtcTurkSubmitOrderParams,
 	BtcTurkSubmitOrderResult,
 	BtcTurkOrderUpdate,
-} from './lib/types'
+} from '../../lib/types'
 const logger = Logger.getInstance('btcturk-spot-private-connector')
 
-export class BtcTurkPrivateConnector implements PrivateExchangeConnector {
+export class BtcTurkSpotPrivateConnector implements PrivateExchangeConnector {
 	public btcTurkRestClient: BtcTurkRestClient
 	public btcTurkWSClient: BtcTurkWSPrivateClient
-	public socketUrl: string
-	// public publicWebsocketAddress = BTCTURK_WS_URL
-	// public restUrl = BTCTURK_REST_URL
-	// private route = '/api/v3/brokerage'
-	// public publicWebsocketFeed: any
+	public debug = false
 	private exchangeSymbol: string
 	private sklSymbol: string
+	public socketUrl: string
 	// public amountPrecision = 0
 	// public pricePrecision = 0
 	// private tokenRefreshInterval = 1000 * 60 * 1.5
@@ -82,14 +73,15 @@ export class BtcTurkPrivateConnector implements PrivateExchangeConnector {
 
 	public connect = async (onMessage: OnMessage): Promise<void> => this
 		.btcTurkWSClient
-		.connect()
+		.connect(e => this.debug && logger.log('DEBUG: message received', e.data))
 		.then(async connected => {
 			if (!connected) return
 
 			const ok = !this.credential
 				|| await (this.btcTurkWSClient as BtcTurkWSPrivateClient).login()
 			// BtcTurkWSClient will auto re-subscribe on auto-reconnect
-			ok && this.subscribeToPrivateChannels(onMessage)
+
+			ok && await this.subscribeToPrivateChannels(onMessage)
 		})
 
 	private createOrderStatusUpdate = (order: BtcTurkOrderUpdate): OrderStatusUpdate => {
@@ -215,8 +207,8 @@ export class BtcTurkPrivateConnector implements PrivateExchangeConnector {
 				newOrderClientId: `skl-order-${new Date().getTime()}`,
 				orderType: OrderSideMap[order.side],
 				pairSymbol: this.exchangeSymbol,
-				price: order.price.toFixed(8),
-				quantity: order.size.toFixed(8),
+				price: Number(order.price.toFixed(8)),
+				quantity: Number(order.size.toFixed(8)),
 				// stopPrice: //for stop-limit and stop-market orders
 			}
 			return this.btcTurkRestClient.order.create(params)
@@ -233,14 +225,15 @@ export class BtcTurkPrivateConnector implements PrivateExchangeConnector {
 			timestamp: Date.now(),
 			connectorType: CONNECTOR_TYPE,
 		})
-		this.btcTurkWSClient.socket.stop()
+		this.btcTurkWSClient.stop()
 	}
 
 	private subscribeToPrivateChannels = (onMessage: OnMessage): void => {
-		this.btcTurkWSClient.getSubscribeParam(
+		const params = this.btcTurkWSClient.getSubscribeParam(
 			BtcTurkWSPrivateEvent.OrderUpdate,
-			(result: OrderStatusUpdate) => onMessage([this.createOrderStatusUpdate(result)])
+			(result: BtcTurkOrderUpdate) => onMessage([this.createOrderStatusUpdate(result)])
 		)
+		this.btcTurkWSClient.subscribeBatch([params])
 	}
 }
-export default BtcTurkPrivateConnector
+export default BtcTurkSpotPrivateConnector

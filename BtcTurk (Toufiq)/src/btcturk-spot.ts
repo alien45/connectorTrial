@@ -3,14 +3,13 @@ import {
     ConnectorGroup,
     OrderState,
     Serializable,
-} from '../../types'
+} from './types'
 import { BtcTurkSubmitOrderMethod } from './lib/types'
-// import { BtcTurkOrderType } from './lib/utils'
 
 export const CONNECTOR_TYPE = 'BtcTurk'
 
 export const getBtcTurkSymbol = (symbolGroup: ConnectorGroup, connectorConfig: ConnectorConfiguration): string => {
-    return `${symbolGroup.name}-${connectorConfig.quoteAsset}`
+    return `${symbolGroup.name}${connectorConfig.quoteAsset}`
 }
 
 export type OnMessage = (messages: Serializable[]) => void
@@ -24,8 +23,12 @@ export enum OrderSideMap {
     'Sell' = 'sell',
 }
 export enum OrderSideMapToSKL {
-    'buy' = 'Buy',
-    'sell' = 'Sell',
+    // all orders list
+    Buy = 'Buy',
+    Sell = 'Sell',
+    // open orders list
+    buy = 'Buy',
+    sell = 'Sell',
 }
 
 export enum OrderStatusMapToSKL {
@@ -43,8 +46,8 @@ export enum OrderStatusMapToSKL {
 export enum OrderTypeMap {
     Limit = BtcTurkSubmitOrderMethod.limit,
     Market = BtcTurkSubmitOrderMethod.market,
-    // LimitMaker: '', // not supported in BtcTurk
-    // ImmediateOrCancel: '',// not supported in BtcTurk
+    LimitMaker = '', // not supported in BtcTurk
+    ImmediateOrCancel = '',// not supported in BtcTurk
     // '': BtcTurkOrderMethod.stoplimit, // not supported in SKL
     // '': BtcTurkOrderMethod.stopmarket, // not supported in SKL
 }
@@ -60,7 +63,7 @@ export const OrderUpdateStateMap: { [key: string]: OrderState } = {
  * @name    TradeSideMap
  * @summary map BtcTurk trade side to SKL
  */
-export const TradeSideMapToSKL = {
+export const TradeSideMapToSKL: { [key: string]: string } = {
     0: 'Buy',
     1: 'Sell',
 }
