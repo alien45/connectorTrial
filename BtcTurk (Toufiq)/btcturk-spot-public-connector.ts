@@ -11,8 +11,13 @@ import {
 } from '../../types' //'skl-shared'?
 import { getSklSymbol } from '../../util/config'
 import { Logger } from '../../util/logging'
-import { CONNECTOR_TYPE, getBtcTurkSymbol } from './btcturk-spot'
-import { BtcTurkWSClient, BtcTurkWSPrivateClient } from './lib'
+import {
+    CONNECTOR_TYPE,
+    getBtcTurkSymbol,
+    TradeSideMap,
+    OnMessage
+} from './btcturk-spot'
+import BtcTurkWSClient from './lib/BtcTurkWSClient'
 import {
     BtcTurkOrderBookItem,
     BtcTurkOrderBookResult,
@@ -25,32 +30,23 @@ import { BtcTurk_WS_TYPE } from './lib/utils'
 
 const logger = Logger.getInstance('btcturk-spot-public-connector')
 
-type OnMessage = (messages: Serializable[]) => void
-
 export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
-    private btcTurkWSClient: BtcTurkWSClient | BtcTurkWSPrivateClient
-
-    public publicWebsocketUrl = 'wss://ws-feed-pro.btcturk.com'
-    public restUrl = 'https://kripto.btcturk.com/en/account/api-access'
-    public websocket: any
-    private exchangeSymbol: string
-    private sklSymbol: string
     public asks: BtcTurkOrderBookItem[] = []
     public bids: BtcTurkOrderBookItem[] = []
+    private btcTurkWSClient: BtcTurkWSClient
+    private exchangeSymbol: string
+    private sklSymbol: string
+    public socketUrl: string
 
     constructor(
         private group: ConnectorGroup,
         private config: ConnectorConfiguration,
-        private credential?: Credential, // BtcTurk public connection does not require any authentication
+        // currently BtcTurk public connection does not require any authentication.
+        // therefore, "credential" is unused. but the variable is kept to keep the class implementation consistent.
+        private credential?: Credential,
     ) {
-        this.btcTurkWSClient = !!this.credential
-            ? new BtcTurkWSPrivateClient(
-                this.credential.key,
-                this.credential.secret,
-                3000,
-                logger
-            )
-            : new BtcTurkWSClient(3000, logger)
+        this.btcTurkWSClient = new BtcTurkWSClient(3000, logger)
+        this.socketUrl = this.btcTurkWSClient.socketUrl
         this.exchangeSymbol = getBtcTurkSymbol(this.group, this.config)
         this.sklSymbol = getSklSymbol(this.group, this.config)
     }
@@ -60,10 +56,8 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
         .then(async connected => {
             if (!connected) return
 
-            const ok = !this.credential
-                || await (this.btcTurkWSClient as BtcTurkWSPrivateClient).login()
             // BtcTurkWSClient will auto re-subscribe on auto-reconnect
-            ok && this.subscribeToChannels(onMessage)
+            this.subscribeToChannels(onMessage)
         })
 
     //  not necessary as it is already handled by the subscribeToChannels()
@@ -96,9 +90,7 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
         event: 'Trade',
         price: parseFloat(trade.P),
         size: parseFloat(trade.A),
-        side: trade.S
-            ? 'Buy'
-            : 'Sell',
+        side: TradeSideMap[trade.S],
         timestamp: new Date(trade.D).getTime(),
     })
 
@@ -108,9 +100,12 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
 
     /**
      * @name    stop
-     * @summary cancel all subscriptions and close websocket connection
+     * @summary cancel all subscriptions connection
      */
-    public stop = () => this.btcTurkWSClient.stop()
+    public stop = () => {
+        this.btcTurkWSClient.unsubscribeAll()
+        this.btcTurkWSClient.socket.stop()
+    }
 
     private subscribeToChannels(onMessage: OnMessage): void {
         this.btcTurkWSClient.subscribeBatch([
@@ -146,3 +141,4 @@ export class BtcTurkSpotPublicConnector implements PublicExchangeConnector {
         ])
     }
 }
+export default BtcTurkSpotPublicConnector

@@ -6,6 +6,8 @@ export const BTCTURK_WS_URL = process.env.BTCTURK_WS_URL || 'wss://ws-feed-pro.b
 export const BTCTURK_REST_URL = process.env.BTCTURK_REST_URL || 'https://api.btcturk.com/api'
 export enum BtcTurk_WS_TYPE {
     connected = 991, // on connect message.
+    subscribeResult = 100, //
+    orderDeletePayload = 201, // a messaged received before the order delete confirmation message
 
     OrderBookFull = 431,
     Request = 101,
@@ -23,6 +25,13 @@ export enum BtcTurk_WS_TYPE {
     UserLoginRequest = 114,
     UserOrderMatch = 441,
     UserTrade = 423,
+}
+
+export const MapMultiResultTypes = {
+    [BtcTurk_WS_TYPE.OrderUpdate]: [
+        BtcTurk_WS_TYPE.OrderDelete,
+        BtcTurk_WS_TYPE.OrderInsert,
+    ]
 }
 
 

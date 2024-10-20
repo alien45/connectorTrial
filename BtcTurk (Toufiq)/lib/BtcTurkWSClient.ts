@@ -8,14 +8,15 @@ import {
     createWSSubscribeMsg,
     BtcTurk_WS_TYPE,
     BTCTURK_WS_URL,
-    createWSLoginMsg
+    createWSLoginMsg,
+    MapMultiResultTypes
 } from './utils'
 
 export type BtcTurkWSSubscribeParams = {
     channel: string, // eg: 'ticker'
     event: string,   // eg: 'BTCUSDT'
     onResult: (result: any) => void,
-    onError?: (error: Error) => void
+    onError?: (error?: Error) => void
     type: number, // expect result type. eg: 401
 }
 
@@ -36,6 +37,7 @@ export interface IBtcTurkWSClient {
 
     unsubscribeAll: () => void
 }
+const KEY_SEPARATOR = ':'
 
 export class BtcTurkWSClient implements IBtcTurkWSClient {
     // subscription callbacks
@@ -46,8 +48,10 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
     public connected = false
     public connecting = false
     protected connectionPromise: Promise<Boolean> | null = null
+    protected reconnect = true
     protected reconnectTimeoutId: any
     public socket: WebSocket | null = null
+    public socketUrl = BTCTURK_WS_URL
     protected unsubscribers = new Map<string, () => void>()
 
     constructor(
@@ -62,47 +66,48 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
     ) => {
         this.connectionPromise = new Promise<Boolean>((resolve, reject) => {
             // reuse existing connection
-            if (this.socket && this.socket.readyState === WebSocket.OPEN) return resolve(true)
+            if (this.socket?.readyState === WebSocket.OPEN) return resolve(true)
             // close existing connection
             if (this.socket) this.socket.close()
 
             // clear reconnect timeout to avoid creating unnecessary connections
             clearTimeout(this.reconnectTimeoutId)
             this.connecting = true
-            this.socket = new WebSocket(BTCTURK_WS_URL)
+            this.reconnect = true
+            this.socket = new WebSocket(this.socketUrl)
 
             // handle websocket close event
             this.socket.on('close', (code: any, reason: any) => {
                 this.connecting = false
                 this.logger?.log?.(`Websocket connection closed: ${code} - ${reason}`)
+                if (!this.reconnect) return
 
                 this.reconnectTimeoutId = setTimeout(() => {
                     this.logger?.log?.('Attempting to reconnect...')
-                    this.connect(onMessage, onReconnect)
+                    this.connect(onMessage, onReconnect).then(ok => {
                         // re-establish to all existing subscriptions
-                        .then(ok => {
-                            if (!ok) return
+                        if (!ok) return
 
-                            onReconnect?.()
-                            this.subscribeBatch(
-                                [...this.callbacks]
-                                    .map(([key, callbacks]) => {
-                                        const [
-                                            channel,
-                                            event,
-                                            type
-                                        ] = key.split(':')
+                        onReconnect?.()
+                        this.subscribeBatch(
+                            [...this.callbacks]
+                                .map(([key, callbacks]) => {
+                                    const [
+                                        channel,
+                                        event,
+                                        type
+                                    ] = key.split(KEY_SEPARATOR)
 
-                                        return callbacks.map(onResult => ({
-                                            channel,
-                                            event,
-                                            type: Number(type),
-                                            onResult
-                                        }))
-                                    })
-                                    .flat()
-                            )
-                        })
+                                    return callbacks.map(onResult => ({
+                                        channel,
+                                        event,
+                                        type: Number(type),
+                                        onResult
+                                    }))
+                                })
+                                .flat()
+                        )
+                    })
                         .catch(err => this.logger?.log?.(`Reconnect failed: ${err}`))
                 }, this.reconnectDelayMS)
             })
@@ -127,58 +132,65 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
                 const {
                     channel,
                     event,
-                    type
+                    message,
+                    _type // same as msgType
                 } = data
+
+                if (msgType === BtcTurk_WS_TYPE.subscribeResult) {
+                    const msgParts = message?.split('|')
+                    const joined = msgParts?.[0] === 'join'
+                    const msg = [
+                        'Subscription',
+                        joined ? 'confirmed' : 'cancelled',
+                        '=>',
+                        msgParts[1]
+                    ].join(' ')
+                    return this.logger?.log(msg)
+                }
+
                 const key = this.getCallbackKey(
                     channel,
                     event,
-                    type
+                    msgType
                 )
-                const callbacks = this.callbacks.get(key)
-                callbacks?.forEach(callback => callback?.(data))
+                let callbacks = this.callbacks.get(key)
+                const allKeys = [...this.callbacks.keys()]
+                const subscribedTypes = allKeys
+                    .map(key => key.split(KEY_SEPARATOR)[2])
+                if (!callbacks?.length) {
+                    // some messages received do no include channel and event.
+                    // in that case only matching the type is required
+                    const keyIndex = subscribedTypes.indexOf(String(msgType))
+                    callbacks = keyIndex >= 0
+                        && this.callbacks.get(allKeys[keyIndex])
+                        || undefined
+                }
 
-                !callbacks?.length
+                // handle special cases where one subscribed type can receive multiple types of messages.
+                // eg: if OrderUpdate (453) is subscribed, then create, delete etc messages will also be received.
+                Object.keys(MapMultiResultTypes).forEach(typeStr => {
+                    const index = subscribedTypes.indexOf(typeStr)
+                    if (index === -1) return
+
+                    callbacks = [
+                        ...callbacks || [],
+                        ...this.callbacks.get(allKeys[index]) || [],
+                    ]
+                })
+
+                const noHandler = !callbacks?.length
                     && ![
-                        99, // on connection message
-                        100 // on subscribe message
+                        BtcTurk_WS_TYPE.connected, // on connection message
+                        BtcTurk_WS_TYPE.UserLoginRequest,
+                        BtcTurk_WS_TYPE.orderDeletePayload,
                     ].includes(msgType)
-                    && this.logger?.log?.(
-                        `No handler for message: Channel ${channel} | Event ${event} | Type ${type}`
-                    )
+                if (noHandler) {
+                    const msg = `No handler for message: Channel ${channel} | Event ${event} | Type ${msgType}`
+                    return this.logger?.log?.(msg)
+                }
 
-                // const channelName = Object.keys(BtcTurk_WS_TYPE)[
-                //     Object.values(BtcTurk_WS_TYPE).indexOf(type)
-                // ]
-                // switch (type) {
-                //     case BtcTurk_WS_TYPE.UserLoginRequest:
-                //         // user login
-                //         const { ok, message } = data
-
-                //         break
-                //     case BtcTurk_WS_TYPE.TradeSingle:
-                //         // console.log('TradeSingle', data as BtcTurkTradeSingle)
-                //         break
-                //     case BtcTurk_WS_TYPE.TradeSingleList:
-                //         const items = data.items as BtcTurkTradeListItem[]
-                //         const lastItem = items
-                //             .sort((a, b) => Number(a.D) - Number(b.D))
-                //             .slice(-1)[0]
-                //         // console.log(typeName, { lastItem })
-                //         data = lastItem
-                //         break
-                //     case BtcTurk_WS_TYPE.OrderBookFull:
-                //         data = data as BtcTurkOrderBookResult
-                //         break
-                //     case BtcTurk_WS_TYPE.TickerPair:
-                //         // console.log(typeName, data)
-                //         break
-                //     case BtcTurk_WS_TYPE.Result:
-                //         // const { ok, message } = data as { ok: boolean, message: string }
-                //         // if (!ok) break
-                //         // if (message.includes('join|')) console.log('joined', message.split('|')[1], message)
-                //         break
-                //     default:
-                // }
+                // invoke subscription callbacks
+                callbacks?.forEach(callback => callback?.(data))
             }
         })
         return this.connectionPromise
@@ -188,7 +200,7 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
         channel: string = '',
         event: string = '',
         type: number = -1
-    ) => `${channel}:${event}:${type}`
+    ) => [channel, event, type].join(KEY_SEPARATOR)
 
     /**
      * @name    subscribe
@@ -218,27 +230,28 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
         if (callbacks.includes(onResult)) return
 
         // return function to unsbuscribe from the channel+event
-        const unsubscribe = () => {
+        const unsubscribe = () => new Promise<void>((resolve, reject) => {
             // send a message to server to unsubscribe
             this.socket?.send(
                 createWSSubscribeMsg(
                     channel,
                     event,
                     false
-                )
+                ),
+                (err?: Error) => !err
+                    ? resolve()
+                    : reject(err)
             )
             // remove onResult callback from the list
             const cbs = this.callbacks.get(key) || []
             const index = cbs.indexOf(onResult)
             cbs.splice(index, 1)
             this.callbacks.set(key, cbs)
-        }
+        })
 
         this.callbacks.set(key, [...callbacks, onResult])
 
-        this.socket?.send(createWSSubscribeMsg(channel, event, true), err => {
-            err && onError?.(err)
-        })
+        this.socket?.send(createWSSubscribeMsg(channel, event, true), onError)
 
         this.unsubscribers.set(key, unsubscribe)
         return unsubscribe
@@ -259,7 +272,14 @@ export class BtcTurkWSClient implements IBtcTurkWSClient {
      * @name    unsubscribeAll
      * @summary unsubscribe from all subscriptions
      */
-    public unsubscribeAll = () => [...this.unsubscribers.values()]
-        .forEach(unsubscribe => unsubscribe())
+    public unsubscribeAll = async () => await Promise.all(
+        [...this.unsubscribers.values()]
+            .map(unsubscribe => unsubscribe())
+    )
+
+    public stop = () => {
+        this.reconnect = false
+        this.socket?.close()
+    }
 }
 export default BtcTurkWSClient

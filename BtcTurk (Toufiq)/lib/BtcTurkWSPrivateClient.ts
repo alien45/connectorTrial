@@ -4,7 +4,7 @@ import { BtcTurk_WS_TYPE, createWSLoginMsg } from './utils'
 export const BtcTurkWSUserEventChannel = 'U'
 export enum BtcTurkWSPrivateEvent {
     OrderDelete = 'OrderDelete',
-    OrderInsert = 'orderınsert',
+    OrderInsert = 'orderınsert', // Yes, there is a Turkish alphabet in the middle! Keep it as is.
     OrderUpdate = 'OrderUpdate',
     UserOrderMatch = 'UserOrderMatch',
     UserTrade = 'UserTrade',
